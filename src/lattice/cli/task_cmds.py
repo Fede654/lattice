@@ -23,6 +23,7 @@ from lattice.cli.helpers import (
     validate_actor_format_or_exit,
     mutate_task_events,
 )
+from lattice.completion import complete_status, complete_task_id
 from lattice.storage.operations import TaskMutationDecision, mutate_task, scaffold_plan
 from lattice.cli.main import cli
 from lattice.core.comments import (
@@ -282,7 +283,7 @@ _REDIRECT_FIELDS = {
 
 
 @cli.command()
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("pairs", nargs=-1)
 @common_options
 def update(
@@ -456,7 +457,7 @@ def update(
 
 
 @cli.command("edit-description")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("description")
 @common_options
 def edit_description(
@@ -710,8 +711,8 @@ def _append_plan_reset_section(
 
 
 @cli.command("status")
-@click.argument("task_id")
-@click.argument("new_status")
+@click.argument("task_id", shell_complete=complete_task_id)
+@click.argument("new_status", shell_complete=complete_status)
 @click.option("--force", is_flag=True, help="Force an invalid transition.")
 @click.option(
     "--no-auto-review",
@@ -1022,7 +1023,7 @@ _UNASSIGN_SENTINELS = frozenset({"none", "unassigned", "-"})
 
 
 @cli.command()
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("actor_id")
 @common_options
 def assign(
@@ -1119,7 +1120,7 @@ def assign(
 
 
 @cli.command()
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("text", required=False, default=None)
 @click.option(
     "--file",
@@ -1247,7 +1248,7 @@ def comment(
 
 
 @cli.command("comment-edit")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("comment_id")
 @click.argument("new_text", required=False, default=None)
 @click.option(
@@ -1367,7 +1368,7 @@ def comment_edit(
 
 
 @cli.command("comment-delete")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("comment_id")
 @common_options
 def comment_delete(
@@ -1427,7 +1428,7 @@ def comment_delete(
 
 
 @cli.command()
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("comment_id")
 @click.argument("emoji")
 @common_options
@@ -1507,7 +1508,7 @@ def react(
 
 
 @cli.command()
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("comment_id")
 @click.argument("emoji")
 @common_options
@@ -1593,7 +1594,7 @@ def _flatten_comments(comments: list[dict]) -> list[dict]:
 
 
 @cli.command("complete")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option("--review", "review_text", default=None, help="Review findings text.")
 @click.option(
     "--review-file",

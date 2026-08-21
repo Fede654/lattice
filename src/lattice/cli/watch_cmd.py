@@ -12,6 +12,7 @@ import click
 
 from lattice.cli.helpers import load_project_config, require_root, resolve_task_id
 from lattice.cli.main import cli
+from lattice.completion import complete_status
 from lattice.core.config import resolve_status_input
 from lattice.core.event_stream import stream_events
 
@@ -116,6 +117,7 @@ def _resolve_task_ids(
     "status_filter",
     default=None,
     help="Only show status_changed events transitioning TO this status.",
+    shell_complete=complete_status,
 )
 @click.option(
     "--task",

@@ -19,6 +19,7 @@ from lattice.cli.helpers import (
     validate_actor_format_or_exit,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_task_id
 from lattice.core.acceptance_criteria import (
     allocate_criterion_id,
     criterion_without_history,
@@ -46,7 +47,7 @@ def _mutation_context(is_json: bool, raw_task_id: str, on_behalf_of: str | None)
 
 
 @criterion_group.command("add")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("outcome", required=False)
 @click.option(
     "--file",
@@ -137,7 +138,7 @@ def criterion_add(
 
 
 @criterion_group.command("edit")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("criterion_id")
 @click.argument("outcome", required=False)
 @click.option(
@@ -221,7 +222,7 @@ def criterion_edit(
 
 
 @criterion_group.command("retire")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("criterion_id")
 @common_options
 def criterion_retire(
@@ -279,7 +280,7 @@ def criterion_retire(
 
 
 @criterion_group.command("list")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option("--include-retired", is_flag=True, help="Include retired criteria.")
 @click.option("--history", is_flag=True, help="Include full revision histories.")
 @click.option("--json", "output_json", is_flag=True, help="Output structured JSON.")

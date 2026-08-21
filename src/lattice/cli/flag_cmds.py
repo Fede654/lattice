@@ -17,6 +17,7 @@ from lattice.cli.helpers import (
     validate_actor_format_or_exit,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_task_id
 from lattice.core.events import create_event, get_actor_display
 from lattice.storage.operations import TaskMutationDecision, mutate_task
 
@@ -36,7 +37,7 @@ def _notify_c11(snapshot: dict, *, flagged: bool) -> None:
 
 
 @cli.command("needs-human")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("reason", required=False)
 @click.option(
     "--file",

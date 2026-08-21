@@ -21,6 +21,7 @@ from lattice.cli.helpers import (
     validate_actor_format_or_exit,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_task_id
 from lattice.core.events import create_event
 from lattice.core.stats import load_all_snapshots
 from lattice.storage.operations import TaskMutationDecision, mutate_task
@@ -81,7 +82,7 @@ def _validate_file_paths(paths: list[str], is_json: bool) -> None:
 
 
 @cli.command("file-link")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("filepaths", nargs=-1, required=True)
 @common_options
 def file_link(
@@ -163,7 +164,7 @@ def file_link(
 
 
 @cli.command("file-unlink")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("filepaths", nargs=-1, required=True)
 @common_options
 def file_unlink(

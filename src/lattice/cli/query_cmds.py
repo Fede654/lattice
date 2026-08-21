@@ -22,6 +22,7 @@ from lattice.cli.helpers import (
     validate_actor_format_or_exit,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_status, complete_task_id
 from lattice.core.comments import materialize_comments
 from lattice.core.config import get_valid_transitions, validate_status
 from lattice.core.events import (
@@ -56,7 +57,7 @@ read_snapshot = helpers.read_snapshot
 
 
 @cli.command("comments")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option("--json", "output_json", is_flag=True, help="Output structured JSON.")
 @click.option("--quiet", is_flag=True, help="Print one comment ID per line (top-level only).")
 def comments_cmd(
@@ -146,7 +147,7 @@ def _print_comment(comment: dict, indent: int) -> None:
 
 
 @cli.command("event")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("event_type")
 @click.option("--data", "data_str", default=None, help="JSON string for event data.")
 @click.option("--id", "ev_id", default=None, help="Caller-supplied event ID.")
@@ -276,7 +277,7 @@ def event_cmd(
 
 
 @cli.command("list")
-@click.option("--status", default=None, help="Filter by status.")
+@click.option("--status", default=None, help="Filter by status.", shell_complete=complete_status)
 @click.option("--assigned", default=None, help="Filter by assigned actor.")
 @click.option("--tag", default=None, help="Filter by tag.")
 @click.option("--type", "task_type", default=None, help="Filter by task type.")
@@ -625,7 +626,7 @@ def _is_scaffold_plan_content(content: str) -> bool:
 
 
 @cli.command("show")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option("--full", is_flag=True, help="Include complete event data.")
 @click.option("--compact", is_flag=True, help="Compact output only.")
 @click.option("--json", "output_json", is_flag=True, help="Output structured JSON.")
@@ -1323,7 +1324,7 @@ def _event_summary(event: dict, full: bool) -> str:
 
 
 @cli.command()
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
 def plan(task_id: str, output_json: bool) -> None:
     """Show or open the plan file for a task.
