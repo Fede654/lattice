@@ -183,3 +183,43 @@ def test_complete_relationship_type_filters(tmp_path):
     assert "blocks" in values
     assert "subtask_of" not in values
     assert all(v.startswith("b") for v in values)
+
+
+class TestCompleteProjectName:
+    """Project-name completion for the multi-project commands."""
+
+    def _workspace(self, tmp_path, monkeypatch):
+        import json
+
+        for name in ("alpha", "beta"):
+            lattice = tmp_path / name / ".lattice"
+            lattice.mkdir(parents=True)
+            (lattice / "config.json").write_text(json.dumps({"project_code": name[:3].upper()}))
+        monkeypatch.setenv("LATTICE_SCAN_PATH", str(tmp_path))
+        monkeypatch.delenv("LATTICE_SCAN_IGNORE", raising=False)
+
+    def test_completes_discovered_projects(self, tmp_path, monkeypatch):
+        from lattice.completion import complete_project_name
+
+        self._workspace(tmp_path, monkeypatch)
+        assert [c.value for c in complete_project_name(None, None, "")] == ["alpha", "beta"]
+
+    def test_filters_by_prefix(self, tmp_path, monkeypatch):
+        from lattice.completion import complete_project_name
+
+        self._workspace(tmp_path, monkeypatch)
+        assert [c.value for c in complete_project_name(None, None, "al")] == ["alpha"]
+
+    def test_honours_ignore_patterns(self, tmp_path, monkeypatch):
+        from lattice.completion import complete_project_name
+
+        self._workspace(tmp_path, monkeypatch)
+        monkeypatch.setenv("LATTICE_SCAN_IGNORE", "beta")
+        assert [c.value for c in complete_project_name(None, None, "")] == ["alpha"]
+
+    def test_no_scan_path_does_not_raise(self, tmp_path, monkeypatch):
+        from lattice.completion import complete_project_name
+
+        monkeypatch.delenv("LATTICE_SCAN_PATH", raising=False)
+        monkeypatch.chdir(tmp_path)
+        assert complete_project_name(None, None, "") == []

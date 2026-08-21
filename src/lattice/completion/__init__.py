@@ -142,6 +142,30 @@ def complete_session_name(
     return _names_in(None if lattice_dir is None else lattice_dir / "sessions", incomplete)
 
 
+def complete_project_name(
+    ctx: click.Context, param: click.Parameter, incomplete: str
+) -> list[CompletionItem]:
+    """Complete project names discovered under the configured scan paths.
+
+    Used by the multi-project commands, where a value names a whole board
+    rather than something inside one. Honours $LATTICE_SCAN_PATH and the
+    ignore rules, so it offers exactly the projects the command would scan.
+    """
+    try:
+        from lattice.storage.discovery import (
+            discover_projects,
+            resolve_ignore_patterns,
+            resolve_scan_paths,
+        )
+
+        projects = discover_projects(
+            resolve_scan_paths(None), ignore=resolve_ignore_patterns(None)
+        )
+    except Exception:
+        return []
+    return _items((p.name for p in projects), incomplete)
+
+
 def complete_relationship_type(
     ctx: click.Context, param: click.Parameter, incomplete: str
 ) -> list[CompletionItem]:

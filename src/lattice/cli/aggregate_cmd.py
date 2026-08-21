@@ -22,6 +22,7 @@ from pathlib import Path
 import click
 
 from lattice.cli.main import cli
+from lattice.completion import complete_project_name
 from lattice.storage.discovery import (
     DEFAULT_MAX_DEPTH,
     LATTICE_SCAN_IGNORE_ENV,
@@ -51,6 +52,7 @@ def _find_free_port(host: str, near: int) -> int | None:
     "--path",
     "paths",
     multiple=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help=(
         f"Directory to scan for projects (repeatable). "
         f"Defaults to ${LATTICE_SCAN_PATH_ENV}, then the current directory."
@@ -60,6 +62,7 @@ def _find_free_port(host: str, near: int) -> int | None:
     "--ignore",
     "ignore_globs",
     multiple=True,
+    shell_complete=complete_project_name,
     help=(
         f"Glob for project roots to skip, such as a mirror or backup tree "
         f"(repeatable). Adds to ${LATTICE_SCAN_IGNORE_ENV}."
