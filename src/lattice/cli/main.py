@@ -1643,6 +1643,7 @@ from lattice.cli import watch_cmd as _watch_cmd  # noqa: E402, F401
 from lattice.cli import claim_cmd as _claim_cmd  # noqa: E402, F401
 from lattice.cli import criterion_cmds as _criterion_cmds  # noqa: E402, F401
 from lattice.cli import aggregate_cmd as _aggregate_cmd  # noqa: E402, F401
+from lattice.cli import completion_cmd as _completion_cmd  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Load CLI plugins (must be after all built-in commands are registered)
