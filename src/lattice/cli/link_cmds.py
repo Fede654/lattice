@@ -16,6 +16,7 @@ from lattice.cli.helpers import (
     validate_actor_format_or_exit,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_relationship_type, complete_task_id
 from lattice.core.events import create_event
 from lattice.core.relationships import RELATIONSHIP_TYPES, validate_relationship_type
 from lattice.storage.operations import (
@@ -57,9 +58,9 @@ def _validate_branch_name(branch: str, is_json: bool) -> None:
 
 
 @cli.command()
-@click.argument("task_id")
-@click.argument("rel_type", metavar="TYPE")
-@click.argument("target_task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
+@click.argument("rel_type", metavar="TYPE", shell_complete=complete_relationship_type)
+@click.argument("target_task_id", shell_complete=complete_task_id)
 @click.option("--note", default=None, help="Optional note for the relationship.")
 @common_options
 def link(
@@ -165,9 +166,9 @@ def link(
 
 
 @cli.command()
-@click.argument("task_id")
-@click.argument("rel_type", metavar="TYPE")
-@click.argument("target_task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
+@click.argument("rel_type", metavar="TYPE", shell_complete=complete_relationship_type)
+@click.argument("target_task_id", shell_complete=complete_task_id)
 @common_options
 def unlink(
     task_id: str,
@@ -253,7 +254,7 @@ def unlink(
 
 
 @cli.command("branch-link")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("branch")
 @click.option("--repo", default=None, help="Optional repository identifier.")
 @common_options
@@ -336,7 +337,7 @@ def branch_link(
 
 
 @cli.command("branch-unlink")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.argument("branch")
 @click.option("--repo", default=None, help="Optional repository identifier.")
 @common_options

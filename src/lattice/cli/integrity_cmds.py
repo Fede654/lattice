@@ -14,6 +14,7 @@ from lattice.cli.helpers import (
     require_root,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_task_id
 from lattice.core.config import configured_event_prefix
 from lattice.core.events import LIFECYCLE_EVENT_TYPES, serialize_event
 from lattice.core.ids import validate_id, validate_short_id, parse_short_id
@@ -1303,7 +1304,7 @@ def _rebuild_resource(lattice_dir: Path, resource_id: str) -> dict:
 
 
 @cli.command()
-@click.argument("task_id", required=False, default=None)
+@click.argument("task_id", required=False, default=None, shell_complete=complete_task_id)
 @click.option("--all", "rebuild_all", is_flag=True, help="Rebuild all tasks.")
 @click.option("--json", "output_json", is_flag=True, help="Output structured JSON.")
 def rebuild(task_id: str | None, rebuild_all: bool, output_json: bool) -> None:

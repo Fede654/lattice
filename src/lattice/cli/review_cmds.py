@@ -22,6 +22,7 @@ from lattice.cli.helpers import (
     resolve_task_id,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_task_id
 from lattice.core.review import (
     DEFAULT_MAX_DIFF_CHARS,
     DEFAULT_MAX_DIFF_LINES,
@@ -151,7 +152,7 @@ def _claim_or_refuse(
 
 
 @cli.command("code-review")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option(
     "--mode",
     type=click.Choice(["inline", "single", "triple"]),
@@ -347,7 +348,7 @@ def code_review(
 
 
 @cli.command("plan-review")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option(
     "--mode",
     type=click.Choice(["inline", "single", "triple"]),
@@ -513,7 +514,7 @@ def _echo_review_failure(
 
 
 @cli.command("review-status")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option("--json", "output_json", is_flag=True, help="Output structured JSON.")
 def review_status(task_id: str, output_json: bool) -> None:
     """Show the status of an in-flight review for a task."""

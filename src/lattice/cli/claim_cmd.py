@@ -16,12 +16,13 @@ from lattice.cli.helpers import (
     resolve_task_id,
 )
 from lattice.cli.main import cli
+from lattice.completion import complete_task_id
 from lattice.core.events import create_event
 from lattice.storage.operations import TaskMutationDecision, mutate_task
 
 
 @cli.command("claim")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @click.option(
     "--surface",
     "surface_id",
@@ -116,7 +117,7 @@ def claim_cmd(
 
 
 @cli.command("unclaim")
-@click.argument("task_id")
+@click.argument("task_id", shell_complete=complete_task_id)
 @common_options
 def unclaim_cmd(
     task_id: str,
