@@ -282,6 +282,30 @@ def _mut_assignment_changed(snap: dict, event: dict) -> None:
     snap["assigned_to"] = data["to"]
 
 
+def _same_prior_value(recorded: object, current: object) -> bool:
+    """True when an event's recorded ``from`` agrees with the replayed state.
+
+    Exact comparison, with one equivalence: **absent and empty are the same
+    prior value**. A list-valued field that was never set replays as ``None``,
+    while a writer observing the same condition may record ``[]``. Both mean
+    "nothing there", so treating them as divergence rejects history that is
+    perfectly valid — the log becomes unreadable to a reader that is merely
+    stricter than the writer was.
+
+    The guard is otherwise untouched: ``["a"]`` against ``["b"]``, or ``None``
+    against ``["a"]``, still fails. Only the absent/empty pair is forgiven, and
+    only for containers — ``0``, ``False`` and ``""`` are values, not absence.
+    """
+    if recorded == current:
+        return True
+    empties: tuple = ([], {}, (), set())
+    if recorded is None:
+        return any(current is not None and current == e for e in empties)
+    if current is None:
+        return any(recorded == e for e in empties)
+    return False
+
+
 @_register_mutation("field_updated")
 def _mut_field_updated(snap: dict, event: dict) -> None:
     data = event["data"]
@@ -290,7 +314,7 @@ def _mut_field_updated(snap: dict, event: dict) -> None:
     if field.startswith("custom_fields."):
         key = field[len("custom_fields.") :]
         current = (snap.get("custom_fields") or {}).get(key)
-        if "from" in data and data["from"] != current:
+        if "from" in data and not _same_prior_value(data["from"], current):
             raise ValueError(
                 "field_updated from value does not match authoritative state: "
                 f"expected {current!r}, got {data['from']!r}"
@@ -304,7 +328,7 @@ def _mut_field_updated(snap: dict, event: dict) -> None:
             "Use the dedicated command (e.g., status, assign) instead."
         )
     else:
-        if "from" in data and data["from"] != snap.get(field):
+        if "from" in data and not _same_prior_value(data["from"], snap.get(field)):
             raise ValueError(
                 "field_updated from value does not match authoritative state: "
                 f"expected {snap.get(field)!r}, got {data['from']!r}"

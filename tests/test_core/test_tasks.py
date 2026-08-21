@@ -1354,3 +1354,62 @@ class TestMutationRegistryCompleteness:
         assert etype not in _NOOP_EVENT_TYPES, (
             f"Event type '{etype}' is in both handler registry and noop set"
         )
+
+
+class TestReplayAbsentVersusEmpty:
+    """A field never set replays as None; older writers recorded [].
+
+    Both mean "nothing there", so the authoritative-state guard must not
+    treat the difference as divergence — otherwise a stricter reader cannot
+    materialise history a looser writer produced.
+    """
+
+    def _event(self, frm, to, field="tags"):
+        return {
+            "id": "ev_01TEST",
+            "type": "field_updated",
+            "task_id": "task_01TEST",
+            "ts": "2026-01-01T00:00:00Z",
+            "actor": "human:test",
+            "schema_version": 1,
+            "data": {"field": field, "from": frm, "to": to},
+        }
+
+    def _snap(self, **kw):
+        base = {"id": "task_01TEST", "status": "backlog", "title": "t"}
+        base.update(kw)
+        return base
+
+    def test_recorded_empty_list_against_absent_state(self) -> None:
+        out = apply_event_to_snapshot(self._snap(), self._event([], ["a"]))
+        assert out["tags"] == ["a"]
+
+    def test_recorded_none_against_empty_list_state(self) -> None:
+        out = apply_event_to_snapshot(self._snap(tags=[]), self._event(None, ["a"]))
+        assert out["tags"] == ["a"]
+
+    def test_recorded_empty_dict_against_absent_state(self) -> None:
+        out = apply_event_to_snapshot(self._snap(), self._event({}, {"k": 1}, field="metadata"))
+        assert out["metadata"] == {"k": 1}
+
+    def test_real_divergence_still_raises(self) -> None:
+        with pytest.raises(ValueError, match="does not match authoritative state"):
+            apply_event_to_snapshot(self._snap(tags=["a"]), self._event(["b"], ["c"]))
+
+    def test_absent_against_populated_still_raises(self) -> None:
+        with pytest.raises(ValueError, match="does not match authoritative state"):
+            apply_event_to_snapshot(self._snap(tags=["a"]), self._event(None, ["c"]))
+
+    def test_populated_against_absent_still_raises(self) -> None:
+        with pytest.raises(ValueError, match="does not match authoritative state"):
+            apply_event_to_snapshot(self._snap(), self._event(["a"], ["c"]))
+
+    def test_falsy_scalars_are_values_not_absence(self) -> None:
+        # 0 / False / "" are real values; they must not be forgiven as absence.
+        for falsy in (0, False, ""):
+            with pytest.raises(ValueError, match="does not match authoritative state"):
+                apply_event_to_snapshot(self._snap(), self._event(falsy, "x", field="note"))
+
+    def test_exact_match_unaffected(self) -> None:
+        out = apply_event_to_snapshot(self._snap(tags=["a"]), self._event(["a"], ["b"]))
+        assert out["tags"] == ["b"]
