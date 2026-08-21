@@ -1369,6 +1369,20 @@ select.form-control{cursor:pointer}
 .stats-tag-row:hover{background:var(--surface-hover)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
+<style>
+.scope-bar{display:flex;align-items:center;gap:10px;padding:6px 14px;
+  border-bottom:1px solid rgba(128,128,128,.25);font:13px/1.4 ui-sans-serif,system-ui,sans-serif;
+  background:rgba(128,128,128,.07);position:sticky;top:0;z-index:9999;flex-wrap:wrap}
+.scope-bar .scope-label{text-transform:uppercase;letter-spacing:.06em;font-size:10px;opacity:.65}
+.scope-bar .scope-select{font:inherit;padding:3px 6px;border-radius:5px;
+  border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit;max-width:280px}
+.scope-bar .scope-meta{opacity:.7;font-size:12px}
+.scope-bar .scope-path{opacity:.45;font-size:11px;font-family:ui-monospace,monospace;
+  margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40vw}
+.scope-bar .scope-warn{color:#b4530a;font-size:11px}
+.scope-bar .scope-warn-soft{opacity:.6;font-size:11px}
+.scope-bar .scope-dupes{color:#b4530a;font-size:11px;cursor:help;border-bottom:1px dotted currentColor}
+</style>
 </head>
 <body>
 
@@ -1577,6 +1591,7 @@ select.form-control{cursor:pointer}
 <!-- Pure lane sort/group logic (see lane-logic.js). Loaded WITHOUT defer so its
      definitions are global before the main IIFE below runs and calls into them. -->
 <script src="/static/lane-logic.js"></script>
+<script src="/static/scope.js"></script>
 <script>
 (function(){
 "use strict";
@@ -2177,9 +2192,21 @@ var WEB_COLLISION_RADIUS = { hub: 30, task: 10 };
 
 // --- API ---
 async function api(path, opts) {
-  var r = await fetch(path, opts);
+  // Project scope: when a scope bar is present, every request carries the
+  // project it applies to. In "All projects" mode a request against one task
+  // is routed to that task's own board, so writes never land in the wrong one.
+  var scoped = path;
+  var sp = "";
+  if (window.LatticeScope) {
+    sp = window.LatticeScope.paramForPath(path) || "";
+  }
+  if (sp) scoped += (path.indexOf("?") === -1 ? "?" : "&") + sp;
+  var r = await fetch(scoped, opts);
   var body = await r.json();
   if (!body.ok) throw new Error(body.error ? body.error.message : "API error");
+  if (window.LatticeScope && window.LatticeScope.isAll() && path === "/api/tasks") {
+    window.LatticeScope.indexTasks(body.data);
+  }
   return body.data;
 }
 
