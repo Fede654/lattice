@@ -281,6 +281,74 @@ Each step makes enforcement more mechanical. Query later: "Where did this lint r
 
 ---
 
+## Working across projects
+
+Lattice is single-project by design: one `.lattice/` describes one project, and
+task state lives beside the code it describes — clone the repo and the board
+comes with it. The trade-off is that N projects means N boards.
+
+`lattice aggregate` serves the same dashboard as `lattice dashboard`, with a
+project picker on top. The whole UI — board, graph, activity, task detail, and
+writes — follows whichever project is selected. It does not require the current
+directory to be a Lattice project.
+
+```bash
+lattice aggregate                      # scan, then serve on :8800
+lattice aggregate --path ~/work        # explicit scan root
+lattice aggregate --list-projects      # what's out there, then exit
+```
+
+### Scan paths
+
+Which directories are searched resolves as:
+
+1. `--path` (repeatable)
+2. `$LATTICE_SCAN_PATH` — an `os.pathsep`-separated list, `~` expanded
+3. the current directory
+
+`--depth` bounds how far below each scan path to look (default 3). Heavy
+directories (`node_modules`, `.git`, `.venv`, …) are skipped.
+
+### All projects
+
+Selecting **All projects** merges every board into one. Reads merge — tasks,
+archived tasks, and statistics are summed across projects, and the board's
+columns come from the shared workflow.
+
+It is read-mostly rather than read-only. Card actions stay live: every merged
+row carries the project it came from, and an action posts that back, so a write
+lands in the board the card was read from. Creating a task is the exception —
+there is no card to take provenance from, so it asks you to pick a project
+first.
+
+Statuses must agree for the merged board to have columns. Any project
+contributing a status the others lack is reported in `workflow_conflicts`
+rather than silently losing a column.
+
+### Copies of boards
+
+A board that is a copy of another is not listed as a project of its own,
+because the same task would otherwise be counted once per copy:
+
+- **git linked worktrees** — `find_root` is already worktree-transparent, so a
+  worktree's `.lattice/` is a snapshot of the primary's, not a separate board.
+- **directories marked `.latticeignore`** — for deliberate mirrors such as a
+  backup or portability package. Put the marker at the top of the *repository*,
+  not inside the mirrored directory: tools that produce mirrors usually delete
+  and rebuild their output directory on every run, which would take the marker
+  with it.
+- **paths matching an ignore glob** — `--ignore <glob>` (repeatable) or
+  `$LATTICE_SCAN_IGNORE`. Use this when the mirror tree cannot hold a marker,
+  because it is regenerated, read-only, or not yours. Unlike scan paths these
+  accumulate: flags add to the environment rather than replacing it.
+
+Nothing is deleted by any of this — copies stay on disk, they are simply not
+scanned as boards.
+
+Projects that cannot be read at all — missing or malformed `config.json`, an
+event log that will not replay, a permissions error — are listed with their
+error rather than skipped.
+
 ## Extending Lattice
 
 ### Event hooks
