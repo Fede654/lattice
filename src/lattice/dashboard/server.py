@@ -80,16 +80,315 @@ def _err(code: str, message: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
-    """Create a handler class bound to a specific .lattice/ directory."""
+#: Sentinel ``?project=`` value meaning "every project in scope at once".
+ALL_PROJECTS = "__all__"
+
+
+class Scope:
+    """The set of projects the dashboard may look at.
+
+    Without a scope the dashboard behaves exactly as before: bound to one
+    ``.lattice/`` directory. With one, the same UI and the same endpoints work
+    over any project found under the scan paths — the active project is chosen
+    per request via ``?project=<name>``, so every existing feature (graph,
+    structure, activity, task detail) keeps working unchanged, just pointed
+    somewhere else.
+
+    Discovery is cached briefly so the many API calls behind one page render
+    share a single filesystem walk.
+    """
+
+    TTL_SECONDS = 5.0
+
+    def __init__(
+        self, scan_paths: list[Path], *, max_depth: int = 3, ignore: list[str] | None = None
+    ):
+        self.scan_paths = scan_paths
+        self.max_depth = max_depth
+        self.ignore = ignore or []
+        self._stamp = 0.0
+        self._projects: list = []
+
+    def projects(self) -> list:
+        import time
+
+        from lattice.storage.discovery import discover_projects
+
+        now = time.monotonic()
+        if not self._projects or (now - self._stamp) > self.TTL_SECONDS:
+            self._projects = discover_projects(
+                self.scan_paths, max_depth=self.max_depth, ignore=self.ignore
+            )
+            self._stamp = now
+        return self._projects
+
+    def by_name(self, name: str):
+        """Return the project called *name*, or ``None``."""
+        for project in self.projects():
+            if project.name == name:
+                return project
+        return None
+
+
+def _make_handler_class(
+    lattice_dir: Path, *, readonly: bool = False, scope: Scope | None = None
+) -> type:
+    """Create a handler class bound to a specific .lattice/ directory.
+
+    When *scope* is given, a request may point the handler at any project in
+    that scope with ``?project=<name>``; *lattice_dir* stays the default.
+    """
 
     class LatticeHandler(BaseHTTPRequestHandler):
         _lattice_dir: Path = lattice_dir
         _readonly: bool = readonly
+        _scope: Scope | None = scope
 
         # Suppress default access logging to stdout; send to stderr instead
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             sys.stderr.write(f"{self.address_string()} - {format % args}\n")
+
+        # -- scope resolution -------------------------------------------------
+
+        def _requested_project(self) -> str | None:
+            """The raw ``?project=`` value, if any."""
+            if self._scope is None:
+                return None
+            values = parse_qs(urlparse(self.path).query).get("project")
+            return values[0] if values else None
+
+        def _is_all_mode(self) -> bool:
+            """True when the request asks for every project at once."""
+            return self._scope is not None and self._requested_project() == ALL_PROJECTS
+
+        def _scoped_dir(self) -> Path | None:
+            """The ``.lattice/`` this request targets.
+
+            ``?project=<name>`` selects a project from the scope; anything else
+            falls back to the directory the server was started in. Returns
+            ``None`` when a project was named but is not in scope, so the
+            caller can answer 404 instead of silently serving the wrong board.
+
+            In ALL mode there is no single directory; callers must check
+            :meth:`_is_all_mode` first. It resolves to the default here so that
+            endpoints which cannot merge still answer with something coherent.
+            """
+            if self._scope is None:
+                return self._lattice_dir
+            requested = self._requested_project()
+            if not requested or requested in ("__default__", ALL_PROJECTS):
+                return self._lattice_dir
+            project = self._scope.by_name(requested)
+            if project is None:
+                return None
+            return project.lattice_dir
+
+        # -- ALL mode ---------------------------------------------------------
+
+        def _readable_projects(self) -> list:
+            """Projects in scope whose config could be read."""
+            if self._scope is None:
+                return []
+            return [p for p in self._scope.projects() if p.error is None]
+
+        def _merged_rows(self, *, archived: bool) -> list[dict]:
+            """Every task across the scope, tagged with where it came from.
+
+            Rows are NOT deduplicated. Copied ``.lattice/`` directories (a
+            worktree, a snapshot) genuinely produce the same task twice, and
+            hiding that would conceal the duplication rather than let it be
+            cleaned up. Instead each affected row is marked ``duplicate_in``
+            with the other projects holding the same task id, so the board can
+            show it and the copies can be reconciled.
+            """
+            rows: list[dict] = []
+            for project in self._readable_projects():
+                try:
+                    authorities = discover_task_authorities(
+                        project.lattice_dir, include_archived=archived
+                    )
+                except Exception:  # noqa: BLE001 - a broken board must not break the view
+                    continue
+                for authority in authorities:
+                    if archived and authority.location != "archived":
+                        continue
+                    if not archived and authority.location == "archived":
+                        continue
+                    snap = authority.snapshot
+                    compact = compact_snapshot(snap)
+                    compact["updated_at"] = snap.get("updated_at")
+                    compact["created_at"] = snap.get("created_at")
+                    compact["done_at"] = snap.get("done_at")
+                    if archived:
+                        compact["archived"] = True
+                    else:
+                        compact["has_active_session"] = bool(
+                            snap.get("status") == "in_progress" and snap.get("assigned_to")
+                        )
+                    # Provenance. Card actions post this back, so a write always
+                    # lands in the board the card was read from — never guessed
+                    # from the task id, which copied boards make ambiguous.
+                    compact["project"] = project.name
+                    compact["project_code"] = project.project_code
+                    compact["project_root"] = str(project.root)
+                    rows.append(compact)
+
+            owners: dict[str, list[str]] = {}
+            for row in rows:
+                owners.setdefault(str(row.get("id")), []).append(str(row.get("project")))
+            for row in rows:
+                holders = owners.get(str(row.get("id")), [])
+                if len(holders) > 1:
+                    row["duplicate_in"] = [h for h in holders if h != row.get("project")]
+
+            rows.sort(key=lambda s: (str(s.get("id", "")), str(s.get("project", ""))))
+            return rows
+
+        def _handle_tasks_merged(self) -> None:
+            self._send_json(200, _ok(self._merged_rows(archived=False)))
+
+        def _handle_archived_merged(self) -> None:
+            self._send_json(200, _ok(self._merged_rows(archived=True)))
+
+        def _handle_stats_merged(self) -> None:
+            """Sum the per-project stats into one board-wide picture."""
+            from lattice.core.stats import build_stats
+
+            # Shapes must match the single-project response exactly, or the
+            # dashboard's panels break: the by_* buckets are lists of
+            # (name, count) pairs, not mappings, and totals live in `summary`.
+            counters = ("by_status", "by_priority", "by_type", "by_assignee", "by_tag")
+            tallies: dict[str, dict[str, int]] = {key: {} for key in counters}
+            summary: dict[str, int] = {}
+            blocked: dict[str, Any] = {}
+            wip: dict[str, dict[str, Any]] = {}
+            listy: dict[str, list] = {
+                "stale": [],
+                "recently_active": [],
+                "busiest": [],
+                "agent_activity": [],
+            }
+            projects_counted = 0
+
+            for project in self._readable_projects():
+                try:
+                    config = json.loads((project.lattice_dir / "config.json").read_text())
+                    stats = build_stats(project.lattice_dir, config)
+                except Exception:  # noqa: BLE001 - one bad board must not empty the page
+                    continue
+                projects_counted += 1
+
+                for key in counters:
+                    for pair in stats.get(key) or []:
+                        try:
+                            name, count = pair[0], pair[1]
+                        except (TypeError, IndexError, KeyError):
+                            continue
+                        if isinstance(count, int):
+                            tallies[key][str(name)] = tallies[key].get(str(name), 0) + count
+
+                for key, value in (stats.get("summary") or {}).items():
+                    if isinstance(value, int):
+                        summary[key] = summary.get(key, 0) + value
+
+                for key, value in (stats.get("blocked") or {}).items():
+                    if isinstance(value, (int, float)):
+                        blocked[key] = blocked.get(key, 0) + value
+
+                # WIP limits are per project; summing current against summed
+                # limits is the only reading that means anything board-wide.
+                for entry in stats.get("wip") or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    slot = wip.setdefault(
+                        str(entry.get("status")),
+                        {"status": entry.get("status"), "current": 0, "limit": 0},
+                    )
+                    for field in ("current", "limit"):
+                        if isinstance(entry.get(field), int):
+                            slot[field] += entry[field]
+
+                for key, sink in listy.items():
+                    for entry in stats.get(key) or []:
+                        if isinstance(entry, dict):
+                            entry = {**entry, "project": project.name}
+                        sink.append(entry)
+
+            merged: dict[str, Any] = {
+                key: sorted(tallies[key].items(), key=lambda kv: (-kv[1], kv[0]))
+                for key in counters
+            }
+            merged["summary"] = summary
+            merged["blocked"] = blocked
+            for slot in wip.values():
+                slot["over"] = bool(slot["limit"]) and slot["current"] > slot["limit"]
+            merged["wip"] = list(wip.values())
+            merged.update(listy)
+            # Trim the "top N" lists, which are only meaningful when short.
+            merged["busiest"] = merged["busiest"][:10]
+            merged["recently_active"] = merged["recently_active"][:20]
+            merged["aggregate"] = True
+            merged["projects"] = projects_counted
+            self._send_json(200, _ok(merged))
+
+        def _handle_config_merged(self) -> None:
+            """Config for ALL mode.
+
+            The workflow must be single-valued for the board to have columns.
+            Statuses are taken from the default project and the union of every
+            project's statuses is checked against them; any project that adds a
+            status it does not share is reported in ``workflow_conflicts`` so
+            the divergence is visible instead of silently truncating a column.
+            """
+            try:
+                config = json.loads((self._lattice_dir / "config.json").read_text())
+            except (json.JSONDecodeError, OSError) as exc:
+                self._send_json(500, _err("READ_ERROR", f"Failed to read config: {exc}"))
+                return
+
+            base = set((config.get("workflow") or {}).get("statuses") or [])
+            conflicts: list[dict] = []
+            for project in self._readable_projects():
+                try:
+                    other = json.loads((project.lattice_dir / "config.json").read_text())
+                except Exception:  # noqa: BLE001
+                    continue
+                extra = set((other.get("workflow") or {}).get("statuses") or []) - base
+                if extra:
+                    conflicts.append({"project": project.name, "extra_statuses": sorted(extra)})
+
+            config = dict(config)
+            config["project_code"] = "ALL"
+            config["project_name"] = "All projects"
+            config["aggregate"] = True
+            config["workflow_conflicts"] = conflicts
+            self._send_json(200, _ok(config))
+
+        def _handle_scope(self) -> None:
+            """List the projects this dashboard can switch between."""
+            if self._scope is None:
+                self._send_json(200, _ok({"enabled": False, "projects": []}))
+                return
+            from lattice.storage.discovery import summarize_projects
+
+            summaries = summarize_projects(self._scope.projects())
+            default_name = None
+            for project in self._scope.projects():
+                if project.lattice_dir == self._lattice_dir:
+                    default_name = project.name
+                    break
+            self._send_json(
+                200,
+                _ok(
+                    {
+                        "enabled": True,
+                        "scan_paths": [str(p) for p in self._scope.scan_paths],
+                        "default": default_name,
+                        "all_sentinel": ALL_PROJECTS,
+                        "projects": summaries,
+                    }
+                ),
+            )
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
@@ -173,7 +472,31 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
         # ---------------------------------------------------------------
 
         def _route_api(self, path: str) -> None:
-            ld = self._lattice_dir
+            if path == "/api/scope":
+                self._handle_scope()
+                return
+
+            ld = self._scoped_dir()
+            if ld is None:
+                self._send_json(404, _err("NO_SUCH_PROJECT", "Project is not in scope"))
+                return
+
+            # ALL mode: the endpoints that can be merged are merged. The rest
+            # fall through and answer for the default project, which keeps
+            # panels populated instead of erroring the whole page.
+            if self._is_all_mode():
+                if path == "/api/tasks":
+                    self._handle_tasks_merged()
+                    return
+                if path == "/api/archived":
+                    self._handle_archived_merged()
+                    return
+                if path == "/api/stats":
+                    self._handle_stats_merged()
+                    return
+                if path == "/api/config":
+                    self._handle_config_merged()
+                    return
 
             if path == "/api/config":
                 self._handle_config(ld)
@@ -220,7 +543,26 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
                 self._send_json(404, _err("NOT_FOUND", f"Unknown API endpoint: {path}"))
 
         def _route_api_post(self, path: str) -> None:
-            ld = self._lattice_dir
+            # Writes must land in the project the UI is currently showing, not
+            # in whichever directory the server happened to start in.
+            ld = self._scoped_dir()
+            if ld is None:
+                self._send_json(404, _err("NO_SUCH_PROJECT", "Project is not in scope"))
+                return
+
+            # Per-card actions arrive with the card's own project, so they are
+            # never in ALL mode. Creating a task is the exception: there is no
+            # card to take provenance from, so the project must be chosen first.
+            if self._is_all_mode() and path == "/api/tasks":
+                self._send_json(
+                    400,
+                    _err(
+                        "PROJECT_REQUIRED",
+                        "Select a single project before creating a task — "
+                        "'All projects' has no board to create it in.",
+                    ),
+                )
+                return
 
             if path == "/api/config/dashboard":
                 self._handle_post_dashboard_config(ld)
@@ -2202,7 +2544,12 @@ def _read_artifact_info(ld: Path, snapshot: dict) -> list[dict]:
 
 
 def create_server(
-    lattice_dir: Path, host: str, port: int, *, readonly: bool = False
+    lattice_dir: Path,
+    host: str,
+    port: int,
+    *,
+    readonly: bool = False,
+    scope: Scope | None = None,
 ) -> HTTPServer:
     """Create an HTTP server bound to *host*:*port* serving the Lattice dashboard.
 
@@ -2216,7 +2563,10 @@ def create_server(
         TCP port to listen on.
     readonly:
         If ``True``, all POST requests return 403 FORBIDDEN.
+    scope:
+        Optional :class:`Scope`. When given, a request may select any project
+        in the scope with ``?project=<name>``; *lattice_dir* stays the default.
     """
-    handler_cls = _make_handler_class(lattice_dir, readonly=readonly)
+    handler_cls = _make_handler_class(lattice_dir, readonly=readonly, scope=scope)
     server = HTTPServer((host, port), handler_cls)
     return server
