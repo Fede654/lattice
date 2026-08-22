@@ -185,7 +185,14 @@ class TestInterview:
 
 
 class TestGeneratedGuidance:
-    def test_linear_agents_md_mentions_only_linear_statuses(self, tmp_path: Path) -> None:
+    """The rendered block describes the instance's own workflow.
+
+    `init` no longer writes CLAUDE.md, so these go through `setup-claude`,
+    which is the remaining supported way to put the block in a project and
+    reads the same instance config.
+    """
+
+    def test_linear_guidance_mentions_only_linear_statuses(self, tmp_path: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(
             cli,
@@ -202,12 +209,15 @@ class TestGeneratedGuidance:
             ],
         )
         assert result.exit_code == 0, result.output
-        agents_md = (tmp_path / "agents.md").read_text(encoding="utf-8")
-        for absent in ("in_planning", "in_validation", "pr_open", "`planned`", "`review`"):
-            assert absent not in agents_md, f"agents.md leaks {absent!r}"
-        assert "backlog → todo → in_progress → in_review → done" in agents_md
+        result = runner.invoke(cli, ["setup-claude", "--path", str(tmp_path)])
+        assert result.exit_code == 0, result.output
 
-    def test_stage11_agents_md_matches_static_block(self, tmp_path: Path) -> None:
+        claude_md = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        for absent in ("in_planning", "in_validation", "pr_open", "`planned`", "`review`"):
+            assert absent not in claude_md, f"CLAUDE.md leaks {absent!r}"
+        assert "backlog → todo → in_progress → in_review → done" in claude_md
+
+    def test_stage11_guidance_matches_static_block(self, tmp_path: Path) -> None:
         from lattice.templates.claude_md_block import CLAUDE_MD_BLOCK
 
         runner = CliRunner()
@@ -216,8 +226,11 @@ class TestGeneratedGuidance:
             ["init", "--path", str(tmp_path), "--actor", "human:tester", "--project-code", "T"],
         )
         assert result.exit_code == 0, result.output
-        agents_md = (tmp_path / "agents.md").read_text(encoding="utf-8")
-        assert CLAUDE_MD_BLOCK.lstrip("\n") in agents_md + "\n"
+        result = runner.invoke(cli, ["setup-claude", "--path", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+
+        claude_md = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert CLAUDE_MD_BLOCK.lstrip("\n") in claude_md + "\n"
 
 
 class TestLinearPlanGate:

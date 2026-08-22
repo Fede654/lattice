@@ -1,6 +1,6 @@
 ---
 name: lattice
-description: Lattice agent coordination guide — mental model, CLI commands, lifecycle discipline, and reference for file-based task tracking across agents and sessions.
+description: MANDATORY whenever the working directory (or an ancestor) contains a .lattice/ directory — that project tracks all work in Lattice, and untracked work is invisible to the other agents and humans on it. Load this before writing code, changing status, opening a plan or review, or reporting what state the project is in. Covers the task lifecycle, CLI commands, status transitions, the planning and review gates, and actor attribution.
 homepage: https://github.com/Stage-11-Agentics/lattice
 metadata: {"openclaw":{"emoji":"clipboard","requires":{"bins":["lattice"]},"install":[{"id":"pip","kind":"command","command":"pip install lattice-tracker","bins":["lattice"],"label":"Install Lattice (pip)"},{"id":"pipx","kind":"command","command":"pipx install lattice-tracker","bins":["lattice"],"label":"Install Lattice (pipx)"},{"id":"uv","kind":"command","command":"uv tool install lattice-tracker","bins":["lattice"],"label":"Install Lattice (uv)"}]}}
 ---

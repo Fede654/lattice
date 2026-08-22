@@ -803,73 +803,20 @@ def init(
     click.echo(f"{LATTICE_DIR}/ created \u2014 a mind now has a place to remember.")
 
     # ── Agent Integration ────────────────────────────────────────────
+    #
+    # `init` writes no CLAUDE.md, agents.md or AGENTS.md. Those files belong
+    # to the project and to whoever writes its instructions; a tracker has no
+    # business appending several hundred lines of its own manual to them.
+    #
+    # The protocol lives in the bundled skill instead, which is loaded when a
+    # turn actually needs it rather than sitting in every request. Init's job
+    # here is only to say where that skill is available — or is not.
+    #
+    # `lattice setup-claude`, `setup-codex`, `setup-openclaw` and
+    # `setup-prompt` still write those files for anyone who wants them; they
+    # are simply no longer automatic.
 
-    agents_created = False
-
-    if not non_interactive:
-        # Interactive: show explanation and confirm
-        if setup_agents is None:
-            click.echo("")
-            click.echo(
-                "\u2500\u2500 integration "
-                "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-                "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-                "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-                "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-                "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-                "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-            )
-            click.echo("")
-            click.echo("Lattice works by integrating into your agent's environment.")
-            click.echo("this means creating agents.md (and CLAUDE.md) with instructions")
-            click.echo("that teach your agent the Lattice protocol.")
-            click.echo("")
-            click.echo("other agents: lattice setup-codex, lattice setup-openclaw,")
-            click.echo("or lattice setup-prompt to print instructions for any agent.")
-            click.echo("")
-            try:
-                proceed = click.confirm(
-                    "Set up agent integration? (press Enter or y to continue)",
-                    default=True,
-                )
-            except (click.Abort, EOFError):
-                proceed = False
-
-            if proceed:
-                _create_or_update_agents_md(root, config)
-                _offer_claude_md(root, auto_accept=True, config=config)
-                agents_created = True
-                click.echo("")
-
-                # OpenClaw prompt
-                try:
-                    use_openclaw = click.confirm(
-                        "Also install for OpenClaw?",
-                        default=False,
-                    )
-                except (click.Abort, EOFError):
-                    use_openclaw = False
-
-                if use_openclaw:
-                    _install_openclaw_skill(root)
-
-        elif setup_agents:
-            _create_or_update_agents_md(root, config)
-            agents_created = True
-        # else: --no-setup-agents
-    else:
-        # Non-interactive: auto-create unless explicitly declined
-        if setup_agents is not False:
-            _create_or_update_agents_md(root, config)
-            agents_created = True
-
-    # CLAUDE.md: create or update for non-interactive or explicit flag.
-    # (Interactive path handles CLAUDE.md inline above.)
-    if not agents_created or non_interactive:
-        if setup_claude is True:
-            _offer_claude_md(root, auto_accept=True, config=config)
-        elif setup_claude is not False and agents_created:
-            _offer_claude_md(root, auto_accept=True, config=config)
+    _report_skill_availability(root)
 
     # ── Dashboard auto-start (interactive + real TTY only) ───────────
 
@@ -915,10 +862,6 @@ def init(
         click.echo(f"  {LATTICE_DIR}/          task state, events, plans, notes")
         n_statuses = len(config["workflow"]["statuses"])
         click.echo(f"  workflow         {status_preset} ({n_statuses} statuses)")
-        if (root / "agents.md").exists():
-            click.echo("  agents.md        agent integration instructions")
-        if (root / "CLAUDE.md").exists():
-            click.echo("  CLAUDE.md        Claude Code integration")
         if seed and project_code:
             click.echo("  + example tasks  run 'lattice list' to see them")
         click.echo("")
@@ -985,6 +928,71 @@ def init(
 # ---------------------------------------------------------------------------
 # Agent integration helpers
 # ---------------------------------------------------------------------------
+
+
+#: Where an agent runtime looks for a skill, most specific first. A skill
+#: inside the repository travels with a clone and is the same for everyone who
+#: opens it; one under $HOME is that machine's alone.
+SKILL_LOCATIONS: tuple[tuple[str, str, bool], ...] = (
+    (".claude/skills/lattice", "Claude Code, provided by this repository", True),
+    (".agents/skills/lattice", "agents.md runtimes, provided by this repository", True),
+    ("skills/lattice", "OpenClaw, provided by this repository", True),
+    (".claude/skills/lattice", "Claude Code, provided by you", False),
+    (".agents/skills/lattice", "agents.md runtimes, provided by you", False),
+    (".openclaw/skills/lattice", "OpenClaw, provided by you", False),
+)
+
+
+def find_skills(root: Path) -> list[tuple[Path, str, bool]]:
+    """Return every place the Lattice skill is installed for *root*.
+
+    Each entry is (path, description, from_repo). A repository-provided skill
+    is listed before a personal one because that is the order the runtimes
+    resolve them in, and because it is the one that survives a clone.
+    """
+    found: list[tuple[Path, str, bool]] = []
+    for rel, label, from_repo in SKILL_LOCATIONS:
+        base = root if from_repo else Path.home()
+        path = base / rel
+        try:
+            if (path / "SKILL.md").is_file():
+                found.append((path, label, from_repo))
+        except OSError:
+            continue
+    return found
+
+
+def _report_skill_availability(root: Path) -> None:
+    """Say where the Lattice protocol will be read from, or how to install it.
+
+    The skill is the whole integration now, so a project with none is a
+    project whose agents do not know the protocol. That is worth stating
+    plainly at init time rather than discovering later.
+    """
+    found = find_skills(root)
+
+    click.echo("")
+    if not found:
+        click.echo("No Lattice skill found — agents here will not know the protocol.")
+        click.echo("  lattice setup-claude-skill            for you, on this machine")
+        click.echo("  lattice setup-claude-skill --repo     for this repository, so it")
+        click.echo("                                        travels with a clone")
+        return
+
+    click.echo("Lattice protocol available to agents from:")
+    for path, label, from_repo in found:
+        try:
+            shown = path.relative_to(root)
+            shown = Path(".") / shown
+        except ValueError:
+            shown = Path("~") / path.relative_to(Path.home())
+        click.echo(f"  {str(shown):<34} {label}")
+
+    if not any(from_repo for _, _, from_repo in found):
+        click.echo("")
+        click.echo("  All of these are personal to this machine. A clone of this")
+        click.echo("  repository gets none of them; `lattice setup-claude-skill --repo`")
+        click.echo("  installs one that travels with it.")
 
 
 def _create_or_update_agents_md(root: Path, config: dict | None = None) -> None:
@@ -1445,8 +1453,27 @@ def setup_openclaw(target_path: str, install_global: bool, force: bool) -> None:
 
 @cli.command("setup-claude-skill")
 @click.option("--force", is_flag=True, help="Overwrite existing skill if present.")
-def setup_claude_skill(force: bool) -> None:
-    """Install the Lattice skill for Claude Code (~/.claude/skills/)."""
+@click.option(
+    "--repo",
+    "in_repo",
+    is_flag=True,
+    help="Install into this repository (.claude/skills/) instead of $HOME, so the "
+    "skill travels with a clone and is the same for everyone who opens it.",
+)
+@click.option(
+    "--path",
+    "target_path",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    default=".",
+    help="Repository root, with --repo (defaults to the current directory).",
+)
+def setup_claude_skill(force: bool, in_repo: bool, target_path: str) -> None:
+    """Install the Lattice skill for Claude Code.
+
+    Into ``~/.claude/skills/`` by default, which covers every project on this
+    machine and no project on any other. ``--repo`` installs into the
+    repository instead, where it is committed alongside the code it describes.
+    """
     import shutil
 
     # Locate bundled skill files
@@ -1454,8 +1481,10 @@ def setup_claude_skill(force: bool) -> None:
     if not skill_src.exists() or not (skill_src / "SKILL.md").exists():
         raise click.ClickException("Bundled Claude Code skill files not found.")
 
-    # Always install to ~/.claude/skills/lattice
-    dest = Path.home() / ".claude" / "skills" / "lattice"
+    if in_repo:
+        dest = Path(target_path) / ".claude" / "skills" / "lattice"
+    else:
+        dest = Path.home() / ".claude" / "skills" / "lattice"
 
     if dest.exists():
         if not force:
@@ -1485,6 +1514,9 @@ def setup_claude_skill(force: bool) -> None:
         check_script.chmod(0o755)
 
     click.echo(f"Installed Lattice skill for Claude Code at {dest}.")
+    if in_repo:
+        click.echo("  Commit it: agents that open this repository read the protocol")
+        click.echo("  from here, with no per-project files to keep in sync.")
 
 
 # ---------------------------------------------------------------------------
