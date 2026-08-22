@@ -85,11 +85,12 @@ lattice setup-claude-skill --repo    # into .claude/skills/, commit it
 lattice setup-claude-skill           # or into ~/.claude/skills/, this machine only
 ```
 
-This installs the Lattice skill. Claude Code sees its one-line description in
-every session and loads the full protocol when a turn actually needs it — so
-your agent knows to create tasks before working, update statuses at
-transitions, and leave breadcrumbs, without the manual sitting in every
-request.
+This installs the Lattice skill and registers a `SessionStart` hook. A
+session opened inside a project with a `.lattice/` directory starts with one
+line saying so; the skill's description tells the agent to load the full
+protocol before it writes code or reports state. The manual never sits in
+every request, and nothing is loaded in projects without a board. Run the
+same command again after upgrading Lattice to refresh the copy.
 
 `--repo` is the one to prefer for shared work: the skill is committed
 alongside the code, so everyone who clones gets the same protocol and there is
@@ -97,9 +98,9 @@ no per-project file to keep in sync.
 
 `lattice init` does not write `CLAUDE.md`, `agents.md` or `AGENTS.md`. Those
 files are yours. If you would rather have the protocol inline anyway,
-`lattice setup-claude` still appends the block — but note it cannot be
-refreshed in place without `--force`, and a block written by an older Lattice
-will otherwise stay as it is.
+`lattice setup-claude` still appends the block — but it is loaded into every
+request, and a block written by an older Lattice stays as it is until you run
+`--force`.
 
 [Full Claude Code integration guide →](integration-claude-code.md)
 

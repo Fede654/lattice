@@ -24,7 +24,7 @@ Lattice is not an app you open. it's not a website. it's not a standalone thing.
 
 **Lattice lives inside your agentic coding tool.** you install it on your machine. you initialize it in your project. and then your coding agent — Claude Code, Codex, OpenClaw, whatever you use — picks it up and runs with it.
 
-if you're using **Claude Code**: you install Lattice, run `lattice setup-claude`, and from that point on every Claude Code session in that project automatically knows how to create tasks, claim work, update status, and leave context for the next session. you didn't teach it. Lattice did.
+if you're using **Claude Code**: you install Lattice, run `lattice setup-claude-skill` once, and from that point on every Claude Code session in any project with a board automatically knows how to create tasks, claim work, update status, and leave context for the next session. you didn't teach it. Lattice did.
 
 if you're using **Codex CLI**: same install, run `lattice setup-codex`, and Codex reads the Lattice skill at session start. same pattern. same result.
 
@@ -79,8 +79,8 @@ cd your-project/
 lattice init
 
 # 3. connect to your coding agent (pick one)
-lattice setup-claude            # Claude Code (writes to CLAUDE.md)
-lattice setup-claude-skill      # Claude Code (installs as global skill)
+lattice setup-claude-skill      # Claude Code (skill + SessionStart hook, once per machine)
+lattice setup-claude            # Claude Code, legacy: appends a block to CLAUDE.md
 lattice setup-codex             # Codex CLI
 lattice setup-openclaw          # OpenClaw
 lattice setup-prompt            # any agent (prints instructions to stdout)

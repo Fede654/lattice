@@ -1335,7 +1335,18 @@ def set_subproject_code(code: str, force: bool) -> None:
 )
 @click.option("--force", is_flag=True, help="Replace existing Lattice block if present.")
 def setup_claude(target_path: str, force: bool) -> None:
-    """Add or update Lattice agent integration in CLAUDE.md."""
+    """Add or update Lattice agent integration in CLAUDE.md.
+
+    Kept for projects that already carry the block. The block is loaded into
+    every request and goes stale the moment Lattice is upgraded; the skill
+    installed by ``lattice setup-claude-skill`` loads on demand and is
+    refreshed by re-running that command.
+    """
+    click.echo("Note: the recommended integration is the Claude Code skill:")
+    click.echo("  lattice setup-claude-skill        once per machine, covers every project")
+    click.echo("  lattice setup-claude-skill --repo for a repository shared with others")
+    click.echo("The CLAUDE.md block is kept for projects that already have it.")
+    click.echo()
     root = Path(target_path)
     marker, composed_block = _compose_claude_md_blocks(_load_instance_config(root))
     claude_md = root / "CLAUDE.md"
@@ -1452,7 +1463,12 @@ def setup_openclaw(target_path: str, install_global: bool, force: bool) -> None:
 
 
 @cli.command("setup-claude-skill")
-@click.option("--force", is_flag=True, help="Overwrite existing skill if present.")
+@click.option(
+    "--force",
+    is_flag=True,
+    hidden=True,
+    help="Accepted for compatibility; the skill is always brought up to date.",
+)
 @click.option(
     "--repo",
     "in_repo",
@@ -1467,16 +1483,23 @@ def setup_openclaw(target_path: str, install_global: bool, force: bool) -> None:
     default=".",
     help="Repository root, with --repo (defaults to the current directory).",
 )
-def setup_claude_skill(force: bool, in_repo: bool, target_path: str) -> None:
-    """Install the Lattice skill for Claude Code.
+@click.option(
+    "--hook/--no-hook",
+    "with_hook",
+    default=True,
+    help="Also register the SessionStart hook that announces a Lattice board "
+    "when a session opens inside one (default: on; user-level install only).",
+)
+def setup_claude_skill(force: bool, in_repo: bool, target_path: str, with_hook: bool) -> None:
+    """Install or update the Lattice skill for Claude Code.
 
     Into ``~/.claude/skills/`` by default, which covers every project on this
     machine and no project on any other. ``--repo`` installs into the
     repository instead, where it is committed alongside the code it describes.
-    """
-    import shutil
 
-    # Locate bundled skill files
+    Re-running after upgrading Lattice brings the installed copy up to date;
+    the skill is the package's own artifact and is never edited in place.
+    """
     skill_src = Path(__file__).resolve().parent.parent / "skills" / "lattice"
     if not skill_src.exists() or not (skill_src / "SKILL.md").exists():
         raise click.ClickException("Bundled Claude Code skill files not found.")
@@ -1486,37 +1509,106 @@ def setup_claude_skill(force: bool, in_repo: bool, target_path: str) -> None:
     else:
         dest = Path.home() / ".claude" / "skills" / "lattice"
 
-    if dest.exists():
-        if not force:
-            click.echo(f"Lattice skill already exists at {dest}. Use --force to overwrite.")
-            return
-        try:
-            shutil.rmtree(dest)
-        except OSError as exc:
-            raise click.ClickException(f"Failed to remove existing skill: {exc}") from exc
-
-    # Ensure parent directory exists
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    # Copy the skill directory tree (exclude Python packaging artifacts)
-    try:
-        shutil.copytree(
-            skill_src,
-            dest,
-            ignore=shutil.ignore_patterns("__init__.py", "__pycache__"),
-        )
-    except OSError as exc:
-        raise click.ClickException(f"Failed to install skill: {exc}") from exc
-
-    # Make the check script executable
-    check_script = dest / "scripts" / "lattice-check.sh"
-    if check_script.exists():
-        check_script.chmod(0o755)
-
-    click.echo(f"Installed Lattice skill for Claude Code at {dest}.")
+    state = _sync_skill_tree(skill_src, dest)
+    verb = {"installed": "Installed", "updated": "Updated", "unchanged": "Up to date:"}[state]
+    click.echo(f"{verb} Lattice skill for Claude Code at {dest}.")
     if in_repo:
         click.echo("  Commit it: agents that open this repository read the protocol")
         click.echo("  from here, with no per-project files to keep in sync.")
+        return
+
+    if with_hook:
+        hook_state = _install_session_hook(dest / "scripts" / "session-start.sh")
+        if hook_state == "installed":
+            click.echo("Registered the SessionStart hook in ~/.claude/settings.json:")
+            click.echo("  sessions opened inside a Lattice project now start by saying so.")
+        elif hook_state == "unchanged":
+            click.echo("SessionStart hook already registered.")
+        else:
+            click.echo(f"Could not register the SessionStart hook: {hook_state}")
+            click.echo("  Add it by hand; see `lattice setup-claude-skill --help`.")
+
+
+def _sync_skill_tree(src: Path, dest: Path) -> str:
+    """Make ``dest`` an exact copy of the bundled skill.
+
+    Returns ``"installed"``, ``"updated"`` or ``"unchanged"``. The copy is
+    replaced wholesale rather than merged: a stale file left behind from an
+    older release would otherwise keep being read.
+    """
+    import filecmp
+    import shutil
+
+    ignore = shutil.ignore_patterns("__init__.py", "__pycache__")
+
+    def _same(a: Path, b: Path) -> bool:
+        cmp = filecmp.dircmp(a, b, ignore=["__init__.py", "__pycache__"])
+        if cmp.left_only or cmp.right_only or cmp.diff_files or cmp.funny_files:
+            return False
+        return all(_same(a / d, b / d) for d in cmp.common_dirs)
+
+    existed = dest.exists()
+    if existed and _same(src, dest):
+        return "unchanged"
+    try:
+        if existed:
+            shutil.rmtree(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dest, ignore=ignore)
+    except OSError as exc:
+        raise click.ClickException(f"Failed to install skill: {exc}") from exc
+    for script in (dest / "scripts").glob("*.sh"):
+        script.chmod(0o755)
+    return "updated" if existed else "installed"
+
+
+SESSION_HOOK_TAG = "lattice-session-start"
+
+
+def _install_session_hook(script: Path) -> str:
+    """Register ``script`` as a Claude Code SessionStart hook for this user.
+
+    Edits ``~/.claude/settings.json`` minimally: one entry is added under
+    ``hooks.SessionStart`` and everything else in the file is left byte-for-
+    byte as found. Returns ``"installed"``, ``"unchanged"`` or an error text.
+    """
+    import json
+
+    settings = Path.home() / ".claude" / "settings.json"
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8")) if settings.exists() else {}
+    except (OSError, ValueError) as exc:
+        return f"{settings} is not readable JSON ({exc})"
+    if not isinstance(data, dict):
+        return f"{settings} is not a JSON object"
+
+    command = f"{script} # {SESSION_HOOK_TAG}"
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return "`hooks` in settings.json is not an object"
+    entries = hooks.setdefault("SessionStart", [])
+    if not isinstance(entries, list):
+        return "`hooks.SessionStart` in settings.json is not a list"
+
+    for entry in entries:
+        for h in entry.get("hooks", []) if isinstance(entry, dict) else []:
+            if isinstance(h, dict) and SESSION_HOOK_TAG in str(h.get("command", "")):
+                if h.get("command") == command:
+                    return "unchanged"
+                h["command"] = command  # path moved: repoint, keep the entry
+                break
+        else:
+            continue
+        break
+    else:
+        entries.append({"hooks": [{"type": "command", "command": command}]})
+
+    try:
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        return f"could not write {settings} ({exc})"
+    return "installed"
 
 
 # ---------------------------------------------------------------------------

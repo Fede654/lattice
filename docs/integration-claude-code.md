@@ -63,12 +63,24 @@ This creates a `.lattice/` directory in your project — think of it like `.git/
 This is the step that makes it click:
 
 ```bash
-lattice setup-claude
+lattice setup-claude-skill
 ```
 
-This adds a block to your project's `CLAUDE.md` that teaches every Claude Code session how to use Lattice. Without this block, the agent *can* use Lattice if you ask. With it, the agent uses Lattice *by default* — creating tasks before coding, updating status at transitions, leaving breadcrumbs for the next session.
+Once per machine. This installs the Lattice skill into `~/.claude/skills/`
+and registers a `SessionStart` hook. From then on, every Claude Code session
+opened inside a project with a `.lattice/` directory starts with one line
+saying so, and the skill's description tells the agent to load the full
+protocol before it writes code or reports state. Nothing is loaded in
+projects without a board, and nothing is written into your project files.
 
-That's the setup. Three commands: `install`, `init`, `setup-claude`.
+For a repository other people work on, install the skill into the repository
+instead so it travels with a clone:
+
+```bash
+lattice setup-claude-skill --repo
+```
+
+That's the setup. Three commands: `install`, `init`, `setup-claude-skill`.
 
 ---
 
@@ -190,23 +202,26 @@ The two are complementary:
 
 ## Keeping the integration current
 
-The CLAUDE.md block comes from a template that improves over time. Update your project's block to the latest version:
+The skill ships inside the Lattice package. After upgrading Lattice, run the
+same command again:
 
 ```bash
-lattice setup-claude --force
+lattice setup-claude-skill
 ```
 
-The `--force` flag replaces the existing block with the latest template. Without it, the command exits if it detects an existing block (to avoid accidental overwrites).
+It replaces the installed copy when the bundled one differs and says so;
+otherwise it reports the copy is up to date. There is nothing to merge: the
+skill is Lattice's own artifact, not a file you edit.
 
 ---
 
 ## Troubleshooting
 
 **Agent ignores Lattice and starts coding immediately.**
-The CLAUDE.md block is missing or positioned too low in the file. Run `lattice setup-claude --force`, then move the `## Lattice` section higher in CLAUDE.md. Instruction position affects compliance — put it in the first or second section.
+Check that the session started with the "Lattice board …" line. If it did not, the hook is missing: run `lattice setup-claude-skill` and look for `lattice-session-start` under `hooks.SessionStart` in `~/.claude/settings.json`. If the line is there and the agent still skips the board, it opened the session outside the project directory — the hook looks upward from the working directory for `.lattice/`.
 
 **Agent uses wrong status names** (like `in_implementation` or `in_review`).
-These are from old documentation. The real statuses are: `backlog`, `in_planning`, `planned`, `in_progress`, `review`, `pr_open`, `done`, `blocked`, `cancelled`. (`needs-human` is a flag, not a status — see `lattice list --needs-human`.) Update the block with `lattice setup-claude --force`.
+These are from old documentation. The real statuses are: `backlog`, `in_planning`, `planned`, `in_progress`, `review`, `pr_open`, `done`, `blocked`, `cancelled`. (`needs-human` is a flag, not a status — see `lattice list --needs-human`.) Run `lattice setup-claude-skill` to refresh the skill.
 
 **`lattice next` returns nothing but there are tasks in the backlog.**
 The tasks may be assigned to a different actor, or all remaining tasks are in terminal/waiting states. Run `lattice list` to see the full picture.
@@ -219,8 +234,8 @@ The tasks may be assigned to a different actor, or all remaining tasks are in te
 |--------|---------|
 | Install | `pip install lattice-tracker` |
 | Initialize | `lattice init --actor human:you --project-code APP` |
-| Connect Claude Code | `lattice setup-claude` |
-| Update integration | `lattice setup-claude --force` |
+| Connect Claude Code | `lattice setup-claude-skill` |
+| Update integration | `lattice setup-claude-skill` (after upgrading Lattice) |
 | Open dashboard | `lattice dashboard` |
 | Create task | `lattice create "Title" --actor human:you` |
 | Advance (in Claude Code) | `/lattice` |
