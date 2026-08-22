@@ -349,8 +349,8 @@ The CLI is Lattice's write interface — the primary way agents interact with th
 | `lattice restart` | Restart a running dashboard (sends SIGHUP) |
 | `lattice doctor` | Check project integrity |
 | `lattice rebuild <id\|--all>` | Rebuild snapshots from events |
-| `lattice setup-claude` | Add/update CLAUDE.md integration block |
-| `lattice setup-claude-skill` | Install Lattice skill for Claude Code |
+| `lattice setup-claude-skill` | Install or refresh the Claude Code skill and SessionStart hook (`--repo` for a shared repository) |
+| `lattice setup-claude` | Append the CLAUDE.md block (legacy; loaded in every request) |
 | `lattice setup-codex` | Install Lattice skill for Codex CLI |
 | `lattice setup-openclaw` | Install Lattice skill for OpenClaw |
 | `lattice setup-prompt` | Print agent instructions to stdout |
