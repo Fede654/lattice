@@ -502,105 +502,36 @@ class TestInitSubprojectCode:
         assert "Invalid subproject code" in result.output
 
 
-class TestInitAgentsMd:
-    """lattice init agents.md integration."""
+class TestInitLeavesAgentFilesAlone:
+    """`init` writes no CLAUDE.md, agents.md or AGENTS.md.
 
-    def test_init_creates_agents_md_on_confirm(self, tmp_path: Path) -> None:
-        """Interactive init, confirm agents.md -> file created."""
-        runner = CliRunner()
-        # name, project-name, project-code, 'y' for agents.md
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\ny\n")
-        assert result.exit_code == 0
-        assert "Created agents.md with Lattice integration" in result.output
+    Those files belong to the project. A tracker appending its own manual to
+    them cannot be undone, cannot be kept current (the marker check means a
+    stale block is never refreshed), and puts several hundred lines into every
+    request whether or not the turn touches Lattice. The protocol lives in the
+    skill, which loads only when it is needed.
+    """
 
-        agents_md = tmp_path / "agents.md"
-        assert agents_md.exists()
-        content = agents_md.read_text()
-        assert "## Lattice" in content
+    AGENT_FILES = ("CLAUDE.md", "agents.md", "AGENTS.md")
 
-    def test_init_skips_agents_md_on_decline(self, tmp_path: Path) -> None:
-        """Interactive init, decline agents.md -> file not created."""
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            ["init", "--path", str(tmp_path)],
-            input=_SKIP_ALL,  # 'n' for agents.md
-        )
-        assert result.exit_code == 0
-
-        agents_md = tmp_path / "agents.md"
-        assert not agents_md.exists()
-
-    def test_init_appends_to_existing_agents_md(self, tmp_path: Path) -> None:
-        """Existing agents.md without Lattice block -> appends."""
-        agents_md = tmp_path / "agents.md"
-        agents_md.write_text("# My Agent Instructions\n\nExisting content.\n")
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\ny\n")
-        assert result.exit_code == 0
-        assert "Updated agents.md with Lattice integration" in result.output
-
-        content = agents_md.read_text()
-        assert "Existing content" in content
-        assert "## Lattice" in content
-
-    def test_init_agents_md_already_has_lattice(self, tmp_path: Path) -> None:
-        """Existing agents.md with Lattice block -> no duplicate."""
-        agents_md = tmp_path / "agents.md"
-        agents_md.write_text("# My Agent\n\n## Lattice\n\nAlready here.\n")
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\ny\n")
-        assert result.exit_code == 0
-        assert "already has Lattice integration" in result.output
-
-        content = agents_md.read_text()
-        assert content.count("## Lattice") == 1
-
-    def test_init_noninteractive_auto_creates_agents_md(self, tmp_path: Path) -> None:
-        """Non-interactive init auto-creates agents.md."""
+    def test_init_creates_none_of_them(self, tmp_path: Path) -> None:
         runner = CliRunner()
         result = runner.invoke(
             cli,
             ["init", "--path", str(tmp_path), "--actor", "human:test", "--project-code", "TST"],
         )
         assert result.exit_code == 0
-        assert "Created agents.md" in result.output
+        for name in self.AGENT_FILES:
+            assert not (tmp_path / name).exists(), f"init created {name}"
 
-        agents_md = tmp_path / "agents.md"
-        assert agents_md.exists()
-        assert "## Lattice" in agents_md.read_text()
-
-    def test_init_no_setup_agents_flag(self, tmp_path: Path) -> None:
-        """--no-setup-agents prevents agents.md creation."""
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "init",
-                "--path",
-                str(tmp_path),
-                "--actor",
-                "human:test",
-                "--project-code",
-                "TST",
-                "--no-setup-agents",
-            ],
-        )
-        assert result.exit_code == 0
-
-        agents_md = tmp_path / "agents.md"
-        assert not agents_md.exists()
-
-
-class TestInitClaudeMd:
-    """lattice init CLAUDE.md integration (now secondary to agents.md)."""
-
-    def test_init_updates_existing_claude_md(self, tmp_path: Path) -> None:
-        """When agents.md is created and CLAUDE.md exists, it gets updated too."""
-        claude_md = tmp_path / "CLAUDE.md"
-        claude_md.write_text("# My Project\n\nExisting content.\n")
+    def test_init_does_not_touch_existing_files(self, tmp_path: Path) -> None:
+        originals = {
+            "CLAUDE.md": "# My Project\n\nNever deploy on Friday.\n",
+            "agents.md": "# My Agent Instructions\n\nExisting content.\n",
+            "AGENTS.md": "# Codex\n\nRun the tests first.\n",
+        }
+        for name, body in originals.items():
+            (tmp_path / name).write_text(body)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -608,76 +539,23 @@ class TestInitClaudeMd:
             ["init", "--path", str(tmp_path), "--actor", "human:test", "--project-code", "TST"],
         )
         assert result.exit_code == 0
-        assert "Lattice integration" in result.output
-        assert "CLAUDE.md" in result.output
+        for name, body in originals.items():
+            assert (tmp_path / name).read_text() == body, f"init modified {name}"
 
-        content = claude_md.read_text()
-        assert "## Lattice" in content
-        assert "Existing content" in content
-
-    def test_init_creates_claude_md_in_noninteractive(self, tmp_path: Path) -> None:
-        """Non-interactive init auto-creates CLAUDE.md."""
+    def test_init_is_silent_about_them_interactively(self, tmp_path: Path) -> None:
+        """No prompt to set up agent files, and none written on plain Enter."""
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            ["init", "--path", str(tmp_path), "--actor", "human:test", "--project-code", "TST"],
-        )
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\n")
         assert result.exit_code == 0
+        assert "Set up agent integration?" not in result.output
+        for name in self.AGENT_FILES:
+            assert not (tmp_path / name).exists()
 
-        claude_md = tmp_path / "CLAUDE.md"
-        assert claude_md.exists()
-        assert "## Lattice" in claude_md.read_text()
-
-    def test_init_setup_claude_flag_creates(self, tmp_path: Path) -> None:
-        """--setup-claude explicitly creates CLAUDE.md."""
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "init",
-                "--path",
-                str(tmp_path),
-                "--actor",
-                "human:test",
-                "--project-code",
-                "TST",
-                "--setup-claude",
-            ],
-        )
-        assert result.exit_code == 0
-        assert "Created CLAUDE.md with Lattice integration" in result.output
-
-        claude_md = tmp_path / "CLAUDE.md"
-        assert claude_md.exists()
-        assert "## Lattice" in claude_md.read_text()
-
-    def test_init_no_setup_claude_preserves_existing(self, tmp_path: Path) -> None:
-        """--no-setup-claude with existing file -> file not modified."""
-        claude_md = tmp_path / "CLAUDE.md"
-        original_content = "# My Project\n\nExisting content.\n"
-        claude_md.write_text(original_content)
-
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "init",
-                "--path",
-                str(tmp_path),
-                "--actor",
-                "human:test",
-                "--project-code",
-                "TST",
-                "--no-setup-claude",
-            ],
-        )
-        assert result.exit_code == 0
-        assert claude_md.read_text() == original_content
-
-    def test_init_claude_md_already_has_lattice(self, tmp_path: Path) -> None:
-        """CLAUDE.md already contains Lattice block -> no duplicate."""
-        claude_md = tmp_path / "CLAUDE.md"
-        claude_md.write_text("# My Project\n\n## Lattice\n\nAlready integrated.\n")
+    def test_init_reports_where_the_skill_is(self, tmp_path: Path) -> None:
+        """With a repo-provided skill, init names it instead of writing files."""
+        skill = tmp_path / ".claude" / "skills" / "lattice"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: lattice\n---\n")
 
         runner = CliRunner()
         result = runner.invoke(
@@ -685,54 +563,23 @@ class TestInitClaudeMd:
             ["init", "--path", str(tmp_path), "--actor", "human:test", "--project-code", "TST"],
         )
         assert result.exit_code == 0
+        assert "Lattice protocol available to agents from:" in result.output
+        assert ".claude/skills/lattice" in result.output
+        assert "provided by this repository" in result.output
 
-        content = claude_md.read_text()
-        assert content.count("## Lattice") == 1
+    def test_init_says_so_when_no_skill_is_installed(self, tmp_path: Path, monkeypatch) -> None:
+        """A project whose agents cannot read the protocol is told plainly."""
+        monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "elsewhere")
 
-    def test_init_heartbeat_stores_config(self, tmp_path: Path) -> None:
-        """Init with heartbeat enabled -> config.json has heartbeat section."""
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            [
-                "init",
-                "--path",
-                str(tmp_path),
-                "--actor",
-                "human:test",
-                "--project-code",
-                "TST",
-                "--heartbeat",
-            ],
+            ["init", "--path", str(tmp_path), "--actor", "human:test", "--project-code", "TST"],
         )
         assert result.exit_code == 0
-        assert "Heartbeat: enabled" in result.output
-
-        config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
-        assert config["heartbeat"]["enabled"] is True
-        assert config["heartbeat"]["max_advances"] == 10
-
-    def test_init_no_heartbeat_no_config(self, tmp_path: Path) -> None:
-        """Init with --no-heartbeat -> config.json has no heartbeat section."""
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "init",
-                "--path",
-                str(tmp_path),
-                "--actor",
-                "human:test",
-                "--project-code",
-                "TST",
-                "--no-heartbeat",
-            ],
-        )
-        assert result.exit_code == 0
-        assert "Heartbeat" not in result.output
-
-        config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
-        assert "heartbeat" not in config
+        assert "No Lattice skill found" in result.output
+        assert "setup-claude-skill" in result.output
 
 
 class TestInitWelcomeMessage:
